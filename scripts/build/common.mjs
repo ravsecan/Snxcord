@@ -48,7 +48,16 @@ if (!IS_COMPANION_TEST && process.argv.includes("--companion-test"))
     console.error("--companion-test must be run with --reporter for any effect");
 
 export const IS_UPDATER_DISABLED = process.argv.includes("--disable-updater");
-export const gitHash = process.env.EQUICORD_HASH || execSync("git rev-parse HEAD", { encoding: "utf-8" }).trim();
+function safeGitHash() {
+    if (process.env.EQUICORD_HASH) return process.env.EQUICORD_HASH;
+    try {
+        return execSync("git rev-parse HEAD", { encoding: "utf-8" }).trim();
+    } catch {
+        // ZIP'ten (git olmadan) derlerken git bulunmaz; sabit bir deger kullan
+        return "snxcord";
+    }
+}
+export const gitHash = safeGitHash();
 
 export const banner = {
     js: `
