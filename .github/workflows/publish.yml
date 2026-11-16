@@ -1,0 +1,36 @@
+name: Release Browser Extension
+on:
+    push:
+        tags:
+            - v*
+
+env:
+    FORCE_COLOR: true
+
+permissions:
+    contents: read
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v7
+
+            - name: Setup PNPM
+              uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
+              with:
+                  runtime: node@v24
+                  require-lockfile: true
+
+            - name: Build web
+              run: pnpm buildWebStandalone
+
+            - name: Create sources zip
+              run:
+                  zip -r dist/extension-sources.zip . -x "node_modules/*" -x "dist/*" -x
+                  ".git/*"
+
+            - name: Skip extension publishing (secrets not configured)
+              if: steps.check.outputs.release == 'true'
+              run: echo "Extension publishing skipped - configure secrets in repository settings to enable"

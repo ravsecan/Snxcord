@@ -1,0 +1,86 @@
+name: Release
+on:
+    push:
+        branches:
+            - main
+
+env:
+    FORCE_COLOR: true
+    GITHUB_TOKEN: ${{ secrets.ETOKEN }}
+    GH_TOKEN: ${{ github.token }}
+    REPO: kanvekin/Privbored
+    USERNAME: GitHub-Actions
+
+permissions:
+    contents: write
+
+jobs:
+    Build:
+        name: Build Snxcord
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Setup PNPM
+              uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
+              with:
+                  runtime: node@v24
+                  require-lockfile: true
+
+            - name: Build web
+              run: pnpm buildWebStandalone
+
+            - name: Build
+              run: pnpm buildStandalone
+
+            - name: Generate plugin lists
+              run: |
+                pnpm generatePluginJson dist/plugins.json
+                pnpm generateEquicordPluginJson dist/equicordplugins.json
+                pnpm generateSnxcordPluginJson dist/snxcordplugins.json
+                pnpm generateVencordPluginJson dist/vencordplugins.json
+                pnpm generateDevsList dist/devs.json
+
+            - name: Collect files to be released
+              run: |
+                  cd dist
+                  mkdir -p release
+                  # Copy browser artifacts if present
+                  { [ -d browser ] && compgen -G "browser/browser.*" > /dev/null && cp browser/browser.* release; } || true
+                  # Copy userscript and its legal notice if present
+                  [ -f Vencord.user.js ] && cp Vencord.user.js release || true
+                  [ -f Vencord.user.js.LEGAL.txt ] && cp Vencord.user.js.LEGAL.txt release || true
+                  # Copy plugin data JSONs, extension zips and desktop/vesktop ASARs if present
+                  cp *.{json,zip,asar} release
+
+                  # Legacy un-asared files
+                  { [ -d desktop ] && compgen -G "desktop/*" > /dev/null && cp desktop/* release; } || true
+                  { [ -d snxcord ] && compgen -G "snxcord/*" > /dev/null && cp snxcord/* release; } || true
+                  { [ -d equibop ] && compgen -G "equibop/*" > /dev/null && for file in equibop/*; do
+                    filename=$(basename "$file")
+                    cp "$file" "release/equibop${filename^}"
+                  done; } || true
+
+                  find release -size 0 -delete
+                  rm -f release/package.json
+                  rm -f release/*.map
+
+            - name: Upload Snxcord Stable
+              run: |
+                  gh release upload latest --clobber dist/release/*
+
+            - name: Upload Plugin JSONs to Equibored repo
+              if: github.repository == 'snx/Snxcord'
+              run: |
+                  git config --global user.name "GitHub-Actions"
+                  git config --global user.email actions@github.com
+                  git clone https://$USERNAME:$GITHUB_TOKEN@github.com/$REPO.git plugins
+                  cd plugins
+                  cp ../dist/release/*plugins.json .
+                  cp ../dist/release/devs.json .
+                  git add -A
+
+                  git commit -m "Plugins for https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+                  git push --force https://$USERNAME:$GITHUB_TOKEN@github.com/$REPO.git

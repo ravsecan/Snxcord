@@ -1,0 +1,75 @@
+name: NixOS Build
+on:
+    workflow_dispatch:
+    schedule:
+        - cron: 0 0 * * *
+env:
+    FORCE_COLOR: true
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+permissions:
+    contents: write
+
+jobs:
+    Build:
+        name: Build Snxcord
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Setup PNPM
+              uses: pnpm/setup@fa36a5ef7dcdefc3a7cb25655c122e00cf6e636e # v3.1.2
+              with:
+                  runtime: node@v24
+                  require-lockfile: true
+
+            - name: Build web
+              run: pnpm buildWebStandalone
+
+            - name: Build
+              run: pnpm buildStandalone
+
+            - name: Generate plugin lists
+              run: |
+                pnpm generatePluginJson dist/plugins.json
+                pnpm generateEquicordPluginJson dist/equicordplugins.json
+                pnpm generateSnxcordPluginJson dist/snxcordplugins.json
+                pnpm generateVencordPluginJson dist/vencordplugins.json
+                pnpm generateDevsList dist/devs.json
+
+            - name: Collect files to be released
+              run: |
+                  cd dist
+                  mkdir -p release
+                  # Copy browser artifacts if present
+                  { [ -d browser ] && compgen -G "browser/browser.*" > /dev/null && cp browser/browser.* release; } || true
+                  # Copy userscript and its legal notice if present
+                  [ -f Vencord.user.js ] && cp Vencord.user.js release || true
+                  [ -f Vencord.user.js.LEGAL.txt ] && cp Vencord.user.js.LEGAL.txt release || true
+
+                  # Copy plugin data JSONs, extension zips and desktop/vesktop ASARs if present
+                  compgen -G "*.{json,zip,asar}" > /dev/null && cp *.{json,zip,asar} release || true
+                  # copy the plugin data jsons, the extension zips and the desktop/snxcord asars
+                  cp *.{json,zip,asar} release
+
+                  # legacy un-asared files
+                  cp desktop/* release
+                  for file in snxcord/*; do
+                    filename=$(basename "$file")
+                    cp "$file" "release/snxcord${filename^}"
+                  done; } || true
+
+                  find release -size 0 -delete
+                  rm -f release/package.json
+                  rm -f release/*.map
+
+            - name: Get current date
+              id: date
+              run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
+
+            - name: Upload Equicord Stable
+              if: ${{ vars.ACT == 'false' }}
+              run: |
+                  gh release create ${{ steps.date.outputs.date }} --latest=false
+                  gh release upload ${{ steps.date.outputs.date }} --clobber dist/release/*
