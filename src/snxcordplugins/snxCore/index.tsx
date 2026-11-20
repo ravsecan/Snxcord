@@ -8,7 +8,7 @@
  *  - Sadece owner'larin gordugu "Snx Admin" paneli
  */
 
-import { showNotification } from "@api/Notifications";
+import { ApplicationCommandInputType } from "@api/Commands";
 import { stopPlugin } from "@api/PluginManager";
 import { Settings } from "@api/Settings";
 import { Button } from "@components/Button";
@@ -16,7 +16,7 @@ import ErrorBoundary from "@components/ErrorBoundary";
 import { Heading } from "@components/Heading";
 import { Paragraph } from "@components/Paragraph";
 import { isSnxcordOwner, SNXCORD_DATA_PATH, SNXCORD_DATA_REPO, SNXCORD_OWNERS } from "@utils/constants";
-import { copyWithToast } from "@utils/discord";
+import { copyWithToast, openUserProfile } from "@utils/discord";
 import { relaunch } from "@utils/native";
 import definePlugin, { type Plugin } from "@utils/types";
 import { ModalCloseButton, ModalContent, ModalHeader, ModalRoot, ModalSize } from "@utils/modal";
@@ -24,7 +24,7 @@ import { Alerts, closeModal, openModal, React, showToast, UserStore, useState } 
 import gitHash from "~git-hash";
 import Plugins from "~plugins";
 
-import { emptyData, getData, getToken, getUnseenAnnouncements, isAllowedIcon, isDataRepoConfigured, loadData, logger, markAnnouncementsSeen, resolveBadgeIcon, saveData, setToken, type SnxData } from "./data";
+import { emptyData, getData, getToken, getUnseenAnnouncements, isAllowedIcon, isDataRepoConfigured, loadData, logger, markAnnouncementsSeen, resolveBadgeIcon, saveData, setToken, type SnxAnnouncement, type SnxData } from "./data";
 import { BADGE_PRESETS, PRESET_ORDER } from "./presets";
 import ownerWide from "file://owner-wide.png?base64";
 
@@ -319,8 +319,22 @@ function AdminPanel() {
 
     return (
         <div>
+            <div style={{ ...box, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                <img src={OWNER_ICON} style={{ height: 40 }} alt="Snxcord" />
+                <div style={{ flex: 1, minWidth: 180 }}>
+                    <Heading>Snxcord · Yapımcılar</Heading>
+                    <Paragraph>{SNXCORD_OWNERS.map(o => o.name).join(" & ")}</Paragraph>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {SNXCORD_OWNERS.map(o => (
+                        <Button key={o.id} size="small" variant="secondary" onClick={() => o.id && openUserProfile(o.id)}>
+                            {o.name} profili
+                        </Button>
+                    ))}
+                </div>
+            </div>
             <Paragraph style={{ marginBottom: 16 }}>
-                Hoş geldin, {UserStore.getCurrentUser()?.globalName ?? UserStore.getCurrentUser()?.username}. Owner'lar: {SNXCORD_OWNERS.map(o => o.name).join(" & ")}.
+                Hoş geldin, {UserStore.getCurrentUser()?.globalName ?? UserStore.getCurrentUser()?.username}.
             </Paragraph>
             {!isDataRepoConfigured() && (
                 <div style={{ ...box, border: "1px solid var(--status-warning)" }}>
@@ -388,13 +402,64 @@ function onKeyDown(e: KeyboardEvent) {
     togglePanel();
 }
 
+// ── Ust duyuru seridi ───────────────────────────────────────────────────────
+const BANNER_CONTAINER_ID = "snx-announcement-banners";
+
+function ensureBannerContainer(): HTMLElement {
+    let c = document.getElementById(BANNER_CONTAINER_ID);
+    if (!c) {
+        if (!document.getElementById("snx-banner-style")) {
+            const st = document.createElement("style");
+            st.id = "snx-banner-style";
+            st.textContent = "@keyframes snxSlideDown{from{transform:translateY(-100%);opacity:0}to{transform:translateY(0);opacity:1}}";
+            document.head.appendChild(st);
+        }
+        c = document.createElement("div");
+        c.id = BANNER_CONTAINER_ID;
+        c.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:100000;display:flex;flex-direction:column;pointer-events:none;";
+        document.body.appendChild(c);
+    }
+    return c;
+}
+
+function showAnnouncementBanner(a: SnxAnnouncement) {
+    const c = ensureBannerContainer();
+    const bar = document.createElement("div");
+    bar.style.cssText = "pointer-events:auto;display:flex;align-items:flex-start;gap:12px;padding:10px 16px;background:linear-gradient(90deg,#E6141B,#8f0d11);color:#fff;font-family:var(--font-primary,sans-serif);box-shadow:0 2px 8px rgba(0,0,0,.4);animation:snxSlideDown .25s ease;";
+
+    const text = document.createElement("div");
+    text.style.cssText = "flex:1;min-width:0;";
+    const title = document.createElement("div");
+    title.style.cssText = "font-weight:700;font-size:14px;";
+    title.textContent = "\uD83D\uDCE2 " + a.title; // metni duz string olarak basiyoruz (HTML degil)
+    text.appendChild(title);
+    if (a.message) {
+        const msg = document.createElement("div");
+        msg.style.cssText = "font-size:13px;opacity:.95;white-space:pre-wrap;word-break:break-word;margin-top:2px;";
+        msg.textContent = a.message;
+        text.appendChild(msg);
+    }
+
+    const close = document.createElement("button");
+    close.textContent = "\u2715";
+    close.style.cssText = "pointer-events:auto;background:transparent;border:none;color:#fff;font-size:18px;line-height:1;cursor:pointer;flex-shrink:0;opacity:.85;padding:0 4px;";
+    close.setAttribute("aria-label", "Kapat");
+    close.onclick = () => bar.remove();
+
+    bar.appendChild(text);
+    bar.appendChild(close);
+    c.appendChild(bar);
+}
+
+function clearAnnouncementBanners() {
+    document.getElementById(BANNER_CONTAINER_ID)?.remove();
+}
+
 async function refreshAndAnnounce() {
     await loadData();
     const unseen = await getUnseenAnnouncements();
     if (!unseen.length) return;
-    for (const a of unseen) {
-        showNotification({ title: `Snxcord · ${a.title}`, body: a.message || a.title, permanent: true, noPersist: false });
-    }
+    for (const a of unseen) showAnnouncementBanner(a);
     await markAnnouncementsSeen(unseen.map(a => a.id));
 }
 
@@ -405,7 +470,7 @@ export default definePlugin({
     description: "Snxcord owner simgesi, rozetler, duyurular ve owner paneli.",
     authors: [{ name: "Ravse", id: 1566387153401942076n }, { name: "North", id: 376097269797093377n }],
     required: true,
-    dependencies: ["BadgeAPI"],
+    dependencies: ["BadgeAPI", "CommandsAPI"],
 
     userProfileBadges: [{
         getBadges: ({ userId }) => (getData().badges[userId] ?? []).map(b => {
@@ -419,6 +484,15 @@ export default definePlugin({
             };
         })
     }],
+
+    commands: [
+        {
+            name: "snx",
+            description: "Snx admin panelini aç/kapat (sadece owner'lar)",
+            inputType: ApplicationCommandInputType.BUILT_IN,
+            execute: () => { togglePanel(); }
+        }
+    ],
 
     renderMessageDecoration: ({ message }) => isSnxcordOwner(message?.author?.id) ? <OwnerIcon /> : null,
     renderMemberListDecorator: ({ user }) => isSnxcordOwner(user?.id) ? <OwnerIcon /> : null,
@@ -442,6 +516,7 @@ export default definePlugin({
         clearInterval(interval);
         document.removeEventListener("keydown", onKeyDown, true);
         closePanel();
+        clearAnnouncementBanners();
         Object.assign(getData(), emptyData());
     }
 });

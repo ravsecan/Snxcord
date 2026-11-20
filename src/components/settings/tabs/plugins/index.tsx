@@ -190,10 +190,16 @@ export default function PluginSettings() {
         return o;
     }, []);
 
-    const sortedPlugins = useMemo(() =>
-        Object.values(Plugins).sort((a, b) => a.name.localeCompare(b.name)),
-        []
-    )
+    const sortedPlugins = useMemo(() => {
+        // Snxcord eklentileri (yazarinda Ravse/North olanlar) her zaman en ustte
+        const SNX_OWNER_IDS = ["376097269797093377", "1566387153401942076"];
+        const isSnx = (p: any) => p.authors?.some((a: any) => SNX_OWNER_IDS.includes(String(a?.id)));
+        return Object.values(Plugins).sort((a, b) => {
+            const sa = isSnx(a), sb = isSnx(b);
+            if (sa !== sb) return sa ? -1 : 1;
+            return a.name.localeCompare(b.name);
+        });
+    }, [])
         .toSorted((a, b) => Number(settings.plugins[b.name]?.isFavorite ?? false) - Number(settings.plugins[a.name]?.isFavorite ?? false));
 
     const hasUserPlugins = useMemo(() => !IS_STANDALONE && Object.values(PluginMeta).some(m => m.userPlugin), []);
