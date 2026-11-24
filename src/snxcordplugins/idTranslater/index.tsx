@@ -245,16 +245,10 @@ export default definePlugin({
   settings,
   modifyIncomingMessage,
 
-  patches: [
-    {
-      find: "!1,hideSimpleEmbedContent",
-      replacement: {
-        match: /(let{toAST:.{0,125}?)\(null!=\i\?\i:\i\).content/,
-        replace:
-          "const idTranslaterContent=$self.modifyIncomingMessage(arguments[2]?.contentMessage??arguments[1]);$1idTranslaterContent",
-      },
-    },
-  ],
+  // NOT (Snxcord): Bu patch Discord'un mesaj render koduna giriyordu ve Discord
+  // Canary'nin surekli guncellenen koduyla uyusmayinca client'i ACILISTA cokertiyordu.
+  // Guvenlik icin patch kaldirildi; eklenti artik render'a dokunmuyor, cokertmez.
+  patches: [],
 
   start() {
     console.log(

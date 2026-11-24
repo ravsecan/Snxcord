@@ -473,16 +473,27 @@ export default definePlugin({
     dependencies: ["BadgeAPI", "CommandsAPI"],
 
     userProfileBadges: [{
-        getBadges: ({ userId }) => (getData().badges[userId] ?? []).map(b => {
-            const ic = resolveBadgeIcon(b) ?? DEFAULT_BADGE_ICON;
-            return {
-                description: b.label,
-                name: b.label,
-                infoLabel: "Snxcord",
-                iconSrc: ic,
-                largeIconSrc: ic
-            };
-        })
+        getBadges: ({ userId }) => {
+            try {
+                return (getData().badges[userId] ?? []).map((b, i) => {
+                    const ic = resolveBadgeIcon(b) ?? DEFAULT_BADGE_ICON;
+                    // Discord her rozette bir id istiyor; yoksa cizerken cokuyor.
+                    const id = `snx-${userId}-${b.preset ?? "custom"}-${i}`;
+                    const label = b.label || "Snxcord";
+                    return {
+                        id,
+                        key: id,
+                        description: label,
+                        name: label,
+                        infoLabel: "Snxcord",
+                        iconSrc: ic,
+                        largeIconSrc: ic
+                    };
+                });
+            } catch {
+                return [];
+            }
+        }
     }],
 
     commands: [
