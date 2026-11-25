@@ -1,7 +1,6 @@
 @echo off
 chcp 65001 >nul
-setlocal
-cd /d "%~dp0"
+setlocal EnableExtensions
 title Snxcord kurulum
 
 echo ============================================
@@ -10,9 +9,32 @@ echo   (Bitene kadar bu pencereyi kapatma)
 echo ============================================
 echo.
 
+set "HERE=%~dp0"
+set "INSTALL=%LOCALAPPDATA%\Snxcord"
+
+REM === Her zaman KALICI klasore kur ===
+REM Native Discord, Snxcord'u kurulum klasorunden yukler. Indirilen klasor
+REM (Downloads/Temp) silinirse Discord "Cannot find module" ile cokertir.
+REM Bu yuzden kaynagi %LOCALAPPDATA%\Snxcord icine kopyalayip ORADAN kuruyoruz;
+REM boylece indirdigin klasoru silebilirsin, Discord yine calisir.
+if /i "%HERE%"=="%INSTALL%\" goto build
+
+echo Kalici klasore kuruluyor:
+echo   %INSTALL%
+echo.
+
+if not exist "%INSTALL%" mkdir "%INSTALL%" >nul 2>nul
+robocopy "%HERE%." "%INSTALL%" /E /XD node_modules dist .git /NFL /NDL /NJH /NJS /NC /NS /NP >nul
+
+cd /d "%INSTALL%"
+goto build
+
+:build
+cd /d "%INSTALL%"
+
 if not exist "package.json" (
     echo [HATA] package.json bulunamadi.
-    echo ZIP'i cikardiktan sonra, acilan klasorun ICINDEKI KUR.bat'a cift tikla.
+    echo ZIP'i bir klasore CIKAR, sonra icindeki KUR.bat'a cift tikla.
     echo.
     pause
     exit /b 1
@@ -70,6 +92,9 @@ if errorlevel 1 (
 )
 
 echo [4/4] Discord'a kuruluyor... (Acilan pencerede kendi Discord'unu sec)
+echo Not: Acik Discord kapatiliyor.
+taskkill /f /im Discord.exe >nul 2>nul
+taskkill /f /im DiscordCanary.exe >nul 2>nul
 call pnpm inject
 if errorlevel 1 (
     echo [HATA] Kurulum basarisiz oldu.
@@ -82,6 +107,11 @@ echo.
 echo ============================================
 echo   BITTI! Discord'u tamamen kapatip yeniden ac.
 echo   Ayarlarda "Snxcord" bolumu gorunecek.
+echo.
+echo   Snxcord su kalici klasore kuruldu:
+echo   %INSTALL%
+echo   Bu klasoru SILME. Ama indirdigin ZIP/klasoru
+echo   simdi silebilirsin, Discord calismaya devam eder.
 echo ============================================
 echo.
 pause
