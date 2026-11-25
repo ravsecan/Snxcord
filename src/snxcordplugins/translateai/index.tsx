@@ -3,12 +3,6 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * TranslateAI — yapay zeka ile sohbet cevirisi.
- * - Yazma kutusunun saginda ac/kapa butonu (💬 + yari saydam translate simgesi).
- * - Butona tiklayinca dil secicileri acilir (gelen/giden icin ayri kaynak+hedef dil).
- * - Acikken: gelen mesajlar senin diline cevrilip altinda gosterilir,
- *   senin yazdigin mesaj otomatik hedef dile cevrilip oyle gonderilir.
- * - Ceviri Reidverse/Pollinations/Groq (SnxcordAI altyapisi) uzerinden.
- * - Stil: virgul yok, kesme isareti yok, kisaltmali; Ingilizce ciktida ı yerine i.
  */
 
 import { definePluginSettings } from "@api/Settings";
@@ -28,22 +22,16 @@ import { SnxcordChat } from "../SnxcordAI/aiProvider";
 
 const logger = new Logger("TranslateAI");
 
-// ── Ayarlar ──────────────────────────────────────────────────────────────────
 const settings = definePluginSettings({
-    active: {
-        type: OptionType.BOOLEAN,
-        description: "Ceviri acik mi (butondan da acilir/kapanir)",
-        default: false
-    },
     translateIncoming: {
         type: OptionType.BOOLEAN,
         description: "Gelen mesajlari cevir",
-        default: true
+        default: false
     },
     translateOutgoing: {
         type: OptionType.BOOLEAN,
         description: "Giden mesajlari cevir",
-        default: true
+        default: false
     },
     incomingInput: {
         type: OptionType.STRING,
@@ -73,8 +61,8 @@ const settings = definePluginSettings({
         type: OptionType.SELECT,
         description: "Ceviri icin AI kaynagi",
         options: [
-            { label: "Otomatik ucretsiz (Reidverse -> Pollinations)", value: "reidverse", default: true },
-            { label: "Pollinations (ucretsiz)", value: "pollinations" },
+            { label: "Pollinations (ucretsiz, onerilen)", value: "pollinations", default: true },
+            { label: "Otomatik (Reidverse -> Pollinations)", value: "reidverse" },
             { label: "SnxcordAI ayarlari", value: "Snxcord" },
             { label: "Groq (SnxcordAI'da API anahtari gerekir)", value: "groq" }
         ] as const
@@ -99,7 +87,6 @@ const openBtnStyle: any = {
     fontSize: "14px"
 };
 
-// ── Ceviri cekirdegi (AI) ─────────────────────────────────────────────────────
 export interface TranslationValue {
     sourceLanguage: string;
     text: string;
@@ -138,13 +125,9 @@ function buildSystemPrompt(fromCode: string, toCode: string): string {
 
 function postProcess(text: string, toCode: string): string {
     let t = (text ?? "").trim();
-    // modelin ekleyebilecegi dis tirnaklari temizle
     t = t.replace(/^["'`“”‘’]+/, "").replace(/["'`“”‘’]+$/, "");
-    // virgul yok
     t = t.replace(/[,，、]/g, "");
-    // kesme isaretleri / tirnaklar yok
     t = t.replace(/['’‘`´"“”]/g, "");
-    // Ingilizce ciktida ı -> i
     if (isEnglish(toCode)) {
         t = t.replace(/ı/g, "i").replace(/İ/g, "I");
     }
@@ -152,7 +135,7 @@ function postProcess(text: string, toCode: string): string {
 }
 
 async function callAI(messages: { role: "system" | "user" | "assistant"; content: string; }[]): Promise<string> {
-    const provider = settings.store.aiProvider || "reidverse";
+    const provider = settings.store.aiProvider || "pollinations";
     return SnxcordChat({
         provider,
         forceModel: provider === "reidverse" ? "sakana-fugu-ultra" : undefined,
@@ -178,13 +161,9 @@ async function aiTranslate(kind: "received" | "sent", text: string): Promise<Tra
     };
 }
 
-// ── Gelen mesaj aksesuari (ceviriyi mesajin altinda gosterir) ─────────────────
 const translationCache = new Map<string, TranslationValue>();
 
-interface TranslationSetter {
-    messageId: string;
-    set(v: TranslationValue): void;
-}
+interface TranslationSetter { messageId: string; set(v: TranslationValue): void; }
 const setters = new Set<TranslationSetter>();
 
 function pushTranslation(messageId: string, data: TranslationValue) {
@@ -193,18 +172,14 @@ function pushTranslation(messageId: string, data: TranslationValue) {
 }
 
 const accessoryStyle: any = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "2px",
-    color: "var(--text-muted, #b5bac1)",
-    fontSize: "0.95em"
+    display: "inline-flex", alignItems: "center", gap: "2px",
+    color: "var(--text-muted, #b5bac1)", fontSize: "0.95em"
 };
 
 function TranslationAccessory({ message }: { message: Message; }) {
     const [translation, setTranslation] = useState<TranslationValue | undefined>(
         () => translationCache.get(message.id)
     );
-
     useEffect(() => {
         if ((message as any).vencordEmbeddedBy) return;
         const cached = translationCache.get(message.id);
@@ -213,9 +188,7 @@ function TranslationAccessory({ message }: { message: Message; }) {
         setters.add(setter);
         return () => void setters.delete(setter);
     }, []);
-
     if (!translation) return null;
-
     return (
         <span style={accessoryStyle}>
             <TranslateAIIcon width={16} height={16} />
@@ -225,63 +198,60 @@ function TranslationAccessory({ message }: { message: Message; }) {
     );
 }
 
-// ── Ozel ikon: 💬 arkada + yari saydam translate simgesi (A 文) onde ───────────
-export const TranslateAIIcon = ({ height = 20, width = 20, color, className }: { height?: number; width?: number; color?: string; className?: string; }) => {
-    return (
-        <svg viewBox="0 0 24 24" height={height} width={width} className={className}>
-            <path
-                fill={color ?? "currentColor"}
-                d="M4 3h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"
-            />
-            <text x="8" y="13.5" fontSize="8.5" fontWeight="700" textAnchor="middle"
-                fill="var(--background-primary, #1e1f22)" opacity="0.55">A</text>
-            <text x="15.5" y="13.5" fontSize="8.5" fontWeight="700" textAnchor="middle"
-                fill="var(--background-primary, #1e1f22)" opacity="0.55">文</text>
-        </svg>
-    );
-};
+export const TranslateAIIcon = ({ height = 20, width = 20, color, className }: { height?: number; width?: number; color?: string; className?: string; }) => (
+    <svg viewBox="0 0 24 24" height={height} width={width} className={className}>
+        <path fill={color ?? "currentColor"}
+            d="M4 3h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+        <text x="8" y="13.5" fontSize="8.5" fontWeight="700" textAnchor="middle"
+            fill="var(--background-primary, #1e1f22)" opacity="0.55">A</text>
+        <text x="15.5" y="13.5" fontSize="8.5" fontWeight="700" textAnchor="middle"
+            fill="var(--background-primary, #1e1f22)" opacity="0.55">文</text>
+    </svg>
+);
 
 const TranslateAIIconComponent: any = ({ height = 20, width = 20, className }: any) =>
     <TranslateAIIcon height={height} width={width} className={className} />;
 
-// ── Chatbar butonu ─────────────────────────────────────────────────────────────
 const TranslateAIChatBarIcon: ChatBarButtonFactory = ({ isMainChat }) => {
-    const { active } = settings.use(["active"]);
+    const { translateOutgoing, translateIncoming } = settings.use(["translateOutgoing", "translateIncoming"]);
     if (!isMainChat) return null;
+    const on = translateOutgoing || translateIncoming;
 
     return (
         <ChatBarButton
-            tooltip={active ? "TranslateAI: ACIK (sag tik veya shift+tik: kapat)" : "TranslateAI: kapali (tikla: panel)"}
+            tooltip={on ? "TranslateAI ACIK (sag tik: kapat)" : "TranslateAI (tikla: panel)"}
             onClick={e => {
                 if (e.shiftKey) {
-                    settings.store.active = !settings.store.active;
+                    const v = !on;
+                    settings.store.translateOutgoing = v;
+                    settings.store.translateIncoming = v;
                     return;
                 }
                 openTranslateAIModal();
             }}
-            onContextMenu={() => { settings.store.active = !settings.store.active; }}
+            onContextMenu={() => {
+                const v = !(settings.store.translateOutgoing || settings.store.translateIncoming);
+                settings.store.translateOutgoing = v;
+                settings.store.translateIncoming = v;
+            }}
             buttonProps={{ "aria-haspopup": "dialog" }}
         >
-            <TranslateAIIcon color={active ? "var(--green-360, #23a55a)" : undefined} />
+            <TranslateAIIcon color={on ? "var(--green-360, #23a55a)" : undefined} />
         </ChatBarButton>
     );
 };
 
-// ── Modal (dil secicileri + ac/kapa) ──────────────────────────────────────────
 const LANG_KEYS = ["incomingInput", "incomingOutput", "outgoingInput", "outgoingOutput"] as const;
 
 function LanguageSelect({ settingsKey, label, includeAuto }: {
-    settingsKey: typeof LANG_KEYS[number];
-    label: string;
-    includeAuto: boolean;
+    settingsKey: typeof LANG_KEYS[number]; label: string; includeAuto: boolean;
 }) {
     const currentValue = settings.use([settingsKey])[settingsKey];
     const options = useMemo(() => {
         const opts = Object.entries(GoogleLanguages).map(([value, lbl]) => ({ value, label: lbl as string }));
-        if (!includeAuto) opts.shift(); // "auto" (Detect language) ilk sirada
+        if (!includeAuto) opts.shift();
         return opts;
     }, []);
-
     return (
         <section className={Margins.bottom16}>
             <Heading className={Margins.bottom8}>{label}</Heading>
@@ -298,39 +268,32 @@ function LanguageSelect({ settingsKey, label, includeAuto }: {
 }
 
 function TranslateAIModal({ rootProps }: { rootProps: any; }) {
-    const s = settings.use(["active", "translateIncoming", "translateOutgoing"]);
+    const s = settings.use(["translateIncoming", "translateOutgoing"]);
     return (
         <Modal {...rootProps} title="TranslateAI">
-            <FormSwitch
-                title="Ceviri acik"
-                description="Acikken gelen mesajlar cevrilir ve yazdigin mesajlar otomatik cevrilip gonderilir."
-                value={s.active}
-                onChange={(v: boolean) => { settings.store.active = v; }}
-                hideBorder
-            />
-            <Divider className={Margins.bottom16} />
-
-            <Heading className={Margins.bottom8}>Gelen mesajlar (karsi taraf -&gt; sen)</Heading>
-            <FormSwitch
-                title="Gelen mesajlari cevir"
-                value={s.translateIncoming}
-                onChange={(v: boolean) => { settings.store.translateIncoming = v; }}
-                hideBorder
-            />
-            <LanguageSelect settingsKey="incomingInput" label="Karsi tarafin yazdigi dil" includeAuto />
-            <LanguageSelect settingsKey="incomingOutput" label="Senin dilin (buna cevrilecek)" includeAuto={false} />
-
-            <Divider className={Margins.bottom16} />
-
             <Heading className={Margins.bottom8}>Giden mesajlar (sen -&gt; karsi taraf)</Heading>
             <FormSwitch
                 title="Giden mesajlari cevir"
+                description="Acikken yazdigin mesaj otomatik cevrilip oyle gonderilir."
                 value={s.translateOutgoing}
                 onChange={(v: boolean) => { settings.store.translateOutgoing = v; }}
                 hideBorder
             />
             <LanguageSelect settingsKey="outgoingInput" label="Senin yazdigin dil" includeAuto />
             <LanguageSelect settingsKey="outgoingOutput" label="Karsi tarafin dili (buna cevrilecek)" includeAuto={false} />
+
+            <Divider className={Margins.bottom16} />
+
+            <Heading className={Margins.bottom8}>Gelen mesajlar (karsi taraf -&gt; sen)</Heading>
+            <FormSwitch
+                title="Gelen mesajlari cevir"
+                description="Acikken gelen mesajlar senin diline cevrilip altinda gosterilir."
+                value={s.translateIncoming}
+                onChange={(v: boolean) => { settings.store.translateIncoming = v; }}
+                hideBorder
+            />
+            <LanguageSelect settingsKey="incomingInput" label="Karsi tarafin yazdigi dil" includeAuto />
+            <LanguageSelect settingsKey="incomingOutput" label="Senin dilin (buna cevrilecek)" includeAuto={false} />
         </Modal>
     );
 }
@@ -339,10 +302,9 @@ function openTranslateAIModal() {
     openModal(props => <TranslateAIModal rootProps={props} />);
 }
 
-// ── Plugin ─────────────────────────────────────────────────────────────────────
 export default definePlugin({
     name: "TranslateAI",
-    description: "Yapay zeka ile sohbet cevirisi: gelen mesajlari kendi diline cevirir, yazdigin mesaji otomatik karsi tarafin diline cevirip gonderir. Yazma kutusunun saginda ac/kapa butonu.",
+    description: "Yapay zeka ile sohbet cevirisi: yazdigin mesaji otomatik karsi tarafin diline cevirip gonderir, gelen mesajlari kendi diline cevirir. Yazma kutusunun saginda ac/kapa butonu.",
     authors: [{ name: "North", id: 376097269797093377n }, { name: "Ravse", id: 1566387153401942076n }],
     dependencies: ["ChatInputButtonAPI", "MessageAccessoriesAPI"],
     tags: ["Chat", "Utility", "AI", "Translate"],
@@ -358,11 +320,10 @@ export default definePlugin({
     flux: {
         async MESSAGE_CREATE({ message, channelId, optimistic }: any) {
             try {
-                if (!settings.store.active || !settings.store.translateIncoming) return;
+                if (!settings.store.translateIncoming) return;
                 if (optimistic) return;
                 if (!message?.content) return;
                 if (message.state === "SENDING") return;
-
                 const me = UserStore.getCurrentUser();
                 if (message.author?.id && me?.id && message.author.id === me.id) return;
                 if (translationCache.has(message.id)) return;
@@ -378,7 +339,7 @@ export default definePlugin({
 
     async onBeforeMessageSend(_channelId: string, message: any) {
         try {
-            if (!settings.store.active || !settings.store.translateOutgoing) return;
+            if (!settings.store.translateOutgoing) return;
             if (!message.content?.trim()) return;
             const trans = await aiTranslate("sent", message.content);
             if (trans.text) message.content = trans.text;
@@ -386,10 +347,5 @@ export default definePlugin({
             logger.error("giden ceviri hatasi", e);
             Toasts.show({ message: "TranslateAI: ceviri basarisiz, mesaj orijinal gitti", id: Toasts.genId(), type: Toasts.Type.FAILURE });
         }
-    },
-
-    stop() {
-        translationCache.clear();
-        setters.clear();
     }
 });
